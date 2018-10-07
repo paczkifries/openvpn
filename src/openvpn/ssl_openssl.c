@@ -1093,22 +1093,37 @@ openvpn_extkey_rsa_finish(RSA *rsa)
     return 1;
 }
 
-/* Pass the input hash in 'dgst' to management and get the signature back.
+/*
+ * Pass the input hash in 'dgst' to management and get the signature back.
  * On input siglen contains the capacity of the buffer 'sig'.
  * On return signature is in sig.
+ * pkcs1 controls if pkcs1 padding is required
  * Return value is signature length or -1 on error.
  */
 static int
 get_sig_from_man(const unsigned char *dgst, unsigned int dgstlen,
-                 unsigned char *sig, unsigned int siglen)
+                 unsigned char *sig, unsigned int siglen,
+                 bool pkcs1pad)
 {
     char *in_b64 = NULL;
     char *out_b64 = NULL;
     int len = -1;
+    int bencret = -1;
 
-    /* convert 'dgst' to base64 */
-    if (management
-        && openvpn_base64_encode(dgst, dgstlen, &in_b64) > 0)
+    if ((management->settings.flags & MF_EXTERNAL_KEY_NOPADDING) && pkcs1pad)
+    {
+        /*
+         * Add PKCS1 signature and replace input with it
+         * Use our output buffer also als temporary buffer
+         */
+        RSA_padding_add_PKCS1_type_1(sig, siglen, dgst, dgstlen);
+        bencret = openvpn_base64_encode(sig, siglen, &in_b64);
+    }
+    else
+    {
+        bencret = openvpn_base64_encode(dgst, dgstlen, &in_b64);
+    }
+    if (management && bencret > 0)
     {
         out_b64 = management_query_pk_sig(management, in_b64);
     }
@@ -1124,18 +1139,19 @@ get_sig_from_man(const unsigned char *dgst, unsigned int dgstlen,
 
 /* sign arbitrary data */
 static int
-rsa_priv_enc(int flen, const unsigned char *from, unsigned char *to, RSA *rsa, int padding)
+rsa_priv_enc(int flen, const unsigned char *from, unsigned char *to, RSA *rsa,
+             int padding)
 {
     unsigned int len = RSA_size(rsa);
     int ret = -1;
 
-    if (padding != RSA_PKCS1_PADDING)
+    if (padding != RSA_PKCS1_PADDING && padding != RSA_NO_PADDING)
     {
         RSAerr(RSA_F_RSA_OSSL_PRIVATE_ENCRYPT, RSA_R_UNKNOWN_PADDING_TYPE);
         return -1;
     }
 
-    ret = get_sig_from_man(from, flen, to, len);
+    ret = get_sig_from_man(from, flen, to, len, padding == RSA_PKCS1_PADDING);
 
     return (ret == len)? ret : -1;
 }
@@ -1229,7 +1245,7 @@ ecdsa_sign(int type, const unsigned char *dgst, int dgstlen, unsigned char *sig,
            unsigned int *siglen, const BIGNUM *kinv, const BIGNUM *r, EC_KEY *ec)
 {
     int capacity = ECDSA_size(ec);
-    int len = get_sig_from_man(dgst, dgstlen, sig, capacity);
+    int len = get_sig_from_man(dgst, dgstlen, sig, capacity, false);
 
     if (len > 0)
     {

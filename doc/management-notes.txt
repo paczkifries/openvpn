@@ -832,7 +832,12 @@ END
 
 Base 64 encoded output of RSA_private_encrypt for RSA or ECDSA_sign()
 for EC using OpenSSL or mbedtls_pk_sign() using mbed TLS will provide a
-correct signature.
+correct signature. With the 'nopadding' argument to the
+external-management-interface the interface expects unpadded signatures
+(RSA_NO_PADDING in OpenSSL). When the 'nopadding' keyword is missing the
+interfaces expects PKCS1 padded signatures for RSA keys (RSA_PKCS1_PADDING).
+EC signatures are always unpadded. To support TLS 1.3 using unpadded
+signatures is required.
 
 This capability is intended to allow the use of arbitrary cryptographic
 service providers with OpenVPN via the management interface.

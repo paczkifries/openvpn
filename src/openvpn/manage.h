@@ -343,10 +343,11 @@ struct management *management_init(void);
 #endif
 #define MF_UNIX_SOCK       (1<<8)
 #define MF_EXTERNAL_KEY    (1<<9)
-#define MF_UP_DOWN          (1<<10)
-#define MF_QUERY_REMOTE     (1<<11)
-#define MF_QUERY_PROXY      (1<<12)
-#define MF_EXTERNAL_CERT    (1<<13)
+#define MF_EXTERNAL_KEY_NOPADDING   (1<<10)
+#define MF_UP_DOWN          (1<<11)
+#define MF_QUERY_REMOTE     (1<<12)
+#define MF_QUERY_PROXY      (1<<13)
+#define MF_EXTERNAL_CERT    (1<<14)
 
 bool management_open(struct management *man,
                      const char *addr,

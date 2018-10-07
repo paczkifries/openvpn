@@ -3025,6 +3025,35 @@ options_postprocess_verify(const struct options *o)
     }
 }
 
+#if defined(ENABLE_CRYPTOAPI) || (defined(ENABLE_CRYPTO_OPENSSL) && defined(ENABLE_MANAGEMENT))
+static void
+disable_tls13_if_avilable(struct options *o, const char *msg)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+    const int tls_version_max =
+        (o->ssl_flags >> SSLF_TLS_VERSION_MAX_SHIFT) &
+            SSLF_TLS_VERSION_MAX_MASK;
+
+    /*
+     * The library we are *linked* against is OpenSSL 1.1.1 and therefore
+     * supports TLS 1.3. This needs to be checked at runtime since we can be
+     * compiled against 1.1.0 and then the library can be upgraded to 1.1.1
+     */
+    if (OpenSSL_version_num() >= 0x1010100fL &&
+        (tls_version_max == TLS_VER_UNSPEC || tls_version_max > TLS_VER_1_2))
+    {
+        msg(M_WARN, "%s Setting maximum TLS version to 1.2 ", msg);
+        o->ssl_flags &= ~(SSLF_TLS_VERSION_MAX_MASK <<
+                                                    SSLF_TLS_VERSION_MAX_SHIFT);
+        o->ssl_flags |= (TLS_VER_1_1 << SSLF_TLS_VERSION_MAX_SHIFT);
+
+    }
+#else
+    return;
+#endif
+}
+#endif
+
 static void
 options_postprocess_mutate(struct options *o)
 {
@@ -3105,6 +3134,27 @@ options_postprocess_mutate(struct options *o)
     }
 #endif
 
+#if defined(ENABLE_CRYPTO_MBEDTLS) && defined(MANAGMENT_EXTERNAL_KEY)
+    if (o->management_flags & MF_EXTERNAL_KEY_NOPADDING)
+    {
+        msg(M_FATAL, "mbed TLS does not support the 'nopadding' argument for the --management-external-key option");
+    }
+#endif
+
+#if defined(ENABLE_CRYPTOAPI)
+    if (o->cryptoapi_cert)
+    {
+        disable_tls13_if_avilable(o, "Warning: cryptapicert used.");
+    }
+#endif
+#if defined(ENABLE_CRYPTO_OPENSSL) && defined(ENABLE_MANAGEMENT)
+    if ((o->management_flags & MF_EXTERNAL_KEY) &&
+        !(o->management_flags & MF_EXTERNAL_KEY_NOPADDING))
+    {
+        disable_tls13_if_avilable(o, "Warning: Using management-external-key "
+                                     "without nopadding option.");
+    }
+#endif
 #if P2MP
     /*
      * Save certain parms before modifying options via --pull
@@ -5181,9 +5231,13 @@ add_option(struct options *options,
         options->management_write_peer_info_file = p[1];
     }
 #ifdef ENABLE_MANAGEMENT
-    else if (streq(p[0], "management-external-key") && !p[1])
+    else if (streq(p[0], "management-external-key") && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
+        if (p[1] && streq(p[1], "nopadding"))
+        {
+            options->management_flags |= MF_EXTERNAL_KEY_NOPADDING;
+        }
         options->management_flags |= MF_EXTERNAL_KEY;
     }
     else if (streq(p[0], "management-external-cert") && p[1] && !p[2])
