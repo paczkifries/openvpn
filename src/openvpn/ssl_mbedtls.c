@@ -619,6 +619,59 @@ tls_ctx_use_external_signing_func(struct tls_root_ctx *ctx,
 }
 
 #ifdef ENABLE_MANAGEMENT
+/*
+ * Construct a PKCS v1.5 encoding of a hashed message.
+ *
+ * Taken and trimmed down version (only MBEDTLS_MD_NONE) of
+ * rsa_rsassa_pkcs1_v15_encode from mbedTLS 2.13.1 (53546ea0)
+ *
+ * This is used both for signature generation and verification.
+ *
+ * Parameters:
+ * - hashlen: Length of hash in case hashlen is MBEDTLS_MD_NONE.
+ * - hash:    Buffer containing the hashed message or the raw data.
+ * - dst_len: Length of the encoded message.
+ * - dst:     Buffer to hold the encoded message.
+ *
+ * Assumptions:
+ * - hash has size hashlen
+ * - dst points to a buffer of size at least dst_len.
+ *
+ */
+static int rsa_pkcs1_v15_pad(size_t hashlen, const unsigned char *hash,
+                             size_t dst_len, unsigned char *dst)
+{
+    size_t nb_pad    = dst_len;
+    unsigned char *p = dst;
+
+    if (nb_pad < hashlen)
+        return MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
+
+    nb_pad -= hashlen;
+
+
+    /* Need space for signature header and padding delimiter (3 bytes),
+     * and 8 bytes for the minimal padding */
+    if (nb_pad < 3 + 8)
+    {
+        return (MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+    }
+    nb_pad -= 3;
+
+    /* Now nb_pad is the amount of memory to be filled
+     * with padding, and at least 8 bytes long. */
+
+    /* Write signature header and padding */
+    *p++ = 0;
+    *p++ = MBEDTLS_RSA_SIGN;
+    memset(p, 0xFF, nb_pad);
+    p += nb_pad;
+    *p++ = 0;
+
+    /* we are signing raw data */
+    memcpy(p, hash, hashlen);
+    return 0;
+}
 
 /** Query the management interface for a signature, see external_sign_func. */
 static bool
@@ -629,7 +682,23 @@ management_sign_func(void *sign_ctx, const void *src, size_t src_len,
     char *src_b64 = NULL;
     char *dst_b64 = NULL;
 
-    if (!management || (openvpn_base64_encode(src, src_len, &src_b64) <= 0))
+    if (!management)
+    {
+        goto cleanup;
+    }
+    if (management->settings.flags & MF_EXTERNAL_KEY_NOPADDING)
+    {
+        /*
+         * Add PKCS1 signature and replace input with it
+         * Use our output buffer also als temporary buffer
+         */
+        if ((!mbed_ok(rsa_pkcs1_v15_pad(src_len, src, dst_len, dst)))
+            || (openvpn_base64_encode(dst, dst_len, &src_b64) <= 0 ))
+        {
+            goto cleanup;
+        }
+    }
+    else if (openvpn_base64_encode(src, src_len, &src_b64) <= 0)
     {
         goto cleanup;
     }

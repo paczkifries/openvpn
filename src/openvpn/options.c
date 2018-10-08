@@ -3025,11 +3025,11 @@ options_postprocess_verify(const struct options *o)
     }
 }
 
-#if defined(ENABLE_CRYPTOAPI) || (defined(ENABLE_CRYPTO_OPENSSL) && defined(ENABLE_MANAGEMENT))
+#if defined(ENABLE_CRYPTOAPI) || defined(ENABLE_MANAGEMENT)
 static void
 disable_tls13_if_avilable(struct options *o, const char *msg)
 {
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(ENABLE_CRYPTO_MBEDTLS)
     const int tls_version_max =
         (o->ssl_flags >> SSLF_TLS_VERSION_MAX_SHIFT) &
             SSLF_TLS_VERSION_MAX_MASK;
@@ -3131,13 +3131,6 @@ options_postprocess_mutate(struct options *o)
     if (o->http_proxy_override)
     {
         options_postprocess_http_proxy_override(o);
-    }
-#endif
-
-#if defined(ENABLE_CRYPTO_MBEDTLS) && defined(MANAGMENT_EXTERNAL_KEY)
-    if (o->management_flags & MF_EXTERNAL_KEY_NOPADDING)
-    {
-        msg(M_FATAL, "mbed TLS does not support the 'nopadding' argument for the --management-external-key option");
     }
 #endif
 
